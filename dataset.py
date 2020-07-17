@@ -92,6 +92,9 @@ class MyDataset(Dataset):
                         #read images into an array list
                         rgb_array = [cv2.imread(os.path.join(self.data_path,sub,trial,
                                         "rgb_image_cmd_aligned",image)) for image in rgb_images_tmp]
+                        #add noise
+                        rgb_array = [self.add_rgb_noise(image, opt.rgb_noise, opt.rsnr)
+                                        for image in rgb_array]
                         rgb_array = list(filter(lambda image: not image is None, rgb_array))
                         #reduce image dimension
                         rgb_array = [cv2.resize(image, (116, 87), interpolation=cv2.INTER_LANCZOS4)
@@ -158,18 +161,26 @@ class MyDataset(Dataset):
                         self.data.append([rgb_array, thr_array, spec, gender])
         #print("Total number of recordings: "+str(len(self.data)))
 
-    def add_rgb_noise(self, image, noise_type='gauss', target_snr=10):
-        pdb.set_trace()
+
+    def add_rgb_noise(self, image, noise_type='gauss', target_snr=100):
         if noise_type.lower() == "gauss":
+            target_snr_db   = 10*np.log10(target_snr)
+            sig_avg_watts   = np.sum(image**2)/len(image)
+            sig_avg_db      = 10*np.log10(sig_avg_watts)
+            noise_avg_db    = sig_avg_db - target_snr_db
+            noise_avg_watts = 10**(noise_avg_db/10)
             row,col,ch= image.shape
             mean = 0
-            var = 100.1
-            sigma = var**0.5
+            sigma = np.sqrt(noise_avg_watts)
             gauss = np.random.normal(mean,sigma,(row,col,ch))
             gauss = gauss.reshape(row,col,ch)
             noisy_image = image + gauss
+        else:
+            print("Incorrect rgb noise type is given! Terminating ...")
+            exit()
 
-        return noisy_image
+        return noisy_image.astype("uint8")
+
 
     def add_audio_noise(self, audio, noise_type='gauss', target_snr=10):
         #pdb.set_trace()

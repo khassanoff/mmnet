@@ -1,6 +1,6 @@
-gpu = '2'
+gpu = '9'
 random_seed = 0
-mode = 3    # 1-rgb images, 2-thermal images, 3-audio, 4-rgb and thermal images, 8-all 
+mode = 1    # 1-rgb images, 2-thermal images, 3-audio, 4-rgb and thermal images, 8-all 
 
 #dataset options
 sub_path = 'data/subjects.csv'
@@ -14,13 +14,14 @@ test_path = 'datasets/SpeakingFaces/test_data'
 num_frames = 5
 add_rgb_noise = True
 rgb_noise = 'gauss'   # 'gauss', 
+rsnr = 50.0    # signal to noise ration
 
 #audio file options
 segment_len = 0.2   # seconds
 sample_rate = 44100 # audio file sampling rate
-asnr = 0.005    # signal to noise ration
-add_audio_noise = False
+add_audio_noise = True
 audio_noise = 'gauss'   # 'gauss', 
+asnr = 0.005    # signal to noise ration
 
 #model options
 batch_size = 128
@@ -34,7 +35,7 @@ drop = 0.0
 patience = 20
 num_workers = 0
 max_epoch = 200
-save_prefix = f'models/LipNet'
+save_prefix = f'models/mmnet'
 data_shuffle = False
 is_optimize = True
 
