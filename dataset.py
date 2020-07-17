@@ -5,7 +5,6 @@ import time
 import cv2
 import os
 from torch.utils.data import Dataset
-from cvtransforms import *
 import torch
 import torch.nn.functional as F
 import glob
@@ -123,9 +122,9 @@ class MyDataset(Dataset):
                         audio, _ = librosa.core.load(os.path.join(self.data_path, sub, trial,
                                             'mic1_audio_cmd_trim', record), sr=self.sr)
                         audio, _ = librosa.effects.trim(audio)
-                        if opt.add_noise:
+                        if opt.add_audio_noise:
                             #add additive white Gaussian noise (AWGN)
-                            audio    = self.add_audio_noise(audio, opt.snr)
+                            audio    = self.add_audio_noise(audio, opt.audio_noise, opt.asnr)
                         if len(audio) < self.segment_len*self.sr:
                             print("This record has insufficient number of audio features: "+record)
                             continue
@@ -159,23 +158,40 @@ class MyDataset(Dataset):
                         self.data.append([rgb_array, thr_array, spec, gender])
         #print("Total number of recordings: "+str(len(self.data)))
 
-    def add_audio_noise(self, audio, target_snr=10):
-        #pdb.set_trace()
-        target_snr_db   = 10*np.log10(target_snr)
-        # Calculate signal power and convert to dB 
-        sig_avg_watts   = np.sum(audio**2)/len(audio)
-        sig_avg_db      = 10*np.log10(sig_avg_watts)
-        # Calculate noise according to [2] then convert to watts
-        noise_avg_db    = sig_avg_db - target_snr_db
-        noise_avg_watts = 10**(noise_avg_db/10)
-        # Generate an sample of white noise
-        mean_noise = 0
-        noise_volts = np.random.normal(mean_noise, np.sqrt(noise_avg_watts), len(audio))
-        # print("noise_volts len: "+str(len(noise_volts)))
-        # Noise up the original signal
-        y_volts = audio + noise_volts
+    def add_rgb_noise(self, image, noise_type='gauss', target_snr=10):
+        pdb.set_trace()
+        if noise_type.lower() == "gauss":
+            row,col,ch= image.shape
+            mean = 0
+            var = 100.1
+            sigma = var**0.5
+            gauss = np.random.normal(mean,sigma,(row,col,ch))
+            gauss = gauss.reshape(row,col,ch)
+            noisy_image = image + gauss
 
-        return y_volts
+        return noisy_image
+
+    def add_audio_noise(self, audio, noise_type='gauss', target_snr=10):
+        #pdb.set_trace()
+        if noise_type.lower() == "gauss":
+            target_snr_db   = 10*np.log10(target_snr)
+            # Calculate signal power and convert to dB 
+            sig_avg_watts   = np.sum(audio**2)/len(audio)
+            sig_avg_db      = 10*np.log10(sig_avg_watts)
+            # Calculate noise according to [2] then convert to watts
+            noise_avg_db    = sig_avg_db - target_snr_db
+            noise_avg_watts = 10**(noise_avg_db/10)
+            # Generate an sample of white noise
+            mean_noise = 0
+            noise_volts = np.random.normal(mean_noise, np.sqrt(noise_avg_watts), len(audio))
+            # print("noise_volts len: "+str(len(noise_volts)))
+            # Noise up the original signal
+            y_volts = audio + noise_volts
+        else:
+            print("Incorrect audio noise type is given! Terminating ...")
+            exit()
+
+        return y_volts.astype('float32')
         
 
 

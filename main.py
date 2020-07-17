@@ -83,8 +83,8 @@ def train(model):
     savename = ('{0:}_bs{1:}_lr{2:}_wd{3:}_patience{4:}_drop{5:}_epoch{6:}_mode{7:}').format(
                     opt.save_prefix, opt.batch_size, opt.base_lr, opt.weight_decay, opt.patience, 
                     opt.drop, opt.max_epoch, opt.mode)
-    if opt.add_noise:
-        savename += "_snr"+str(opt.snr)
+    if opt.add_audio_noise:
+        savename += "_asnr"+str(opt.asnr)
     (path, name) = os.path.split(savename)
     if(not os.path.exists(path)):
         os.makedirs(path)
