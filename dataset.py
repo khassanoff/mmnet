@@ -92,10 +92,13 @@ class MyDataset(Dataset):
                         #read images into an array list
                         rgb_array = [cv2.imread(os.path.join(self.data_path,sub,trial,
                                         "rgb_image_cmd_aligned",image)) for image in rgb_images_tmp]
-                        #add noise
-                        rgb_array = [self.add_rgb_noise(image, opt.rgb_noise, opt.rsnr)
-                                        for image in rgb_array]
                         rgb_array = list(filter(lambda image: not image is None, rgb_array))
+
+                        #add noise
+                        if opt.add_rgb_noise:
+                            rgb_array = [self.add_image_noise(image, opt.rgb_noise, opt.rnoise_value)
+                                            for image in rgb_array]
+
                         #reduce image dimension
                         rgb_array = [cv2.resize(image, (116, 87), interpolation=cv2.INTER_LANCZOS4)
                                         for image in rgb_array]
@@ -115,6 +118,12 @@ class MyDataset(Dataset):
                         thr_array = [cv2.imread(os.path.join(self.data_path,sub,trial,
                                         "thr_image_cmd",image)) for image in thr_images_tmp]
                         thr_array = list(filter(lambda image: not image is None, thr_array))
+
+                        #add noise
+                        if opt.add_thr_noise:
+                            thr_array = [self.add_image_noise(image, opt.thr_noise, opt.tnoise_value)
+                                            for image in thr_array]
+
                         #reduce image dimension
                         thr_array = [cv2.resize(image, (116, 87), interpolation=cv2.INTER_LANCZOS4)
                                         for image in thr_array]
@@ -127,7 +136,7 @@ class MyDataset(Dataset):
                         audio, _ = librosa.effects.trim(audio)
                         if opt.add_audio_noise:
                             #add additive white Gaussian noise (AWGN)
-                            audio    = self.add_audio_noise(audio, opt.audio_noise, opt.asnr)
+                            audio    = self.add_audio_noise(audio, opt.audio_noise, opt.anoise_value)
                         if len(audio) < self.segment_len*self.sr:
                             print("This record has insufficient number of audio features: "+record)
                             continue
@@ -162,9 +171,9 @@ class MyDataset(Dataset):
         #print("Total number of recordings: "+str(len(self.data)))
 
 
-    def add_rgb_noise(self, image, noise_type='gauss', target_snr=100):
+    def add_image_noise(self, image, noise_type='gauss', noise_value=10):
         if noise_type.lower() == "gauss":
-            target_snr_db   = 10*np.log10(target_snr)
+            target_snr_db   = 10*np.log10(noise_value)
             sig_avg_watts   = np.sum(image**2)/len(image)
             sig_avg_db      = 10*np.log10(sig_avg_watts)
             noise_avg_db    = sig_avg_db - target_snr_db
@@ -175,17 +184,20 @@ class MyDataset(Dataset):
             gauss = np.random.normal(mean,sigma,(row,col,ch))
             gauss = gauss.reshape(row,col,ch)
             noisy_image = image + gauss
+        elif noise_type.lower() == "blur":
+            kernel_size = (noise_value, noise_value)
+            noisy_image = cv2.blur(image, kernel_size)
         else:
-            print("Incorrect rgb noise type is given! Terminating ...")
+            print("Incorrect image noise type is given! Terminating ...")
             exit()
 
         return noisy_image.astype("uint8")
 
 
-    def add_audio_noise(self, audio, noise_type='gauss', target_snr=10):
+    def add_audio_noise(self, audio, noise_type='gauss', noise_value=10):
         #pdb.set_trace()
         if noise_type.lower() == "gauss":
-            target_snr_db   = 10*np.log10(target_snr)
+            target_snr_db   = 10*np.log10(noise_value)
             # Calculate signal power and convert to dB 
             sig_avg_watts   = np.sum(audio**2)/len(audio)
             sig_avg_db      = 10*np.log10(sig_avg_watts)

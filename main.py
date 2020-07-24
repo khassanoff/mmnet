@@ -85,10 +85,13 @@ def train(model):
                     opt.drop, opt.max_epoch, opt.mode)
 
     if opt.add_rgb_noise and opt.mode in [1,4,7]:
-        savename += "_rsnr"+str(opt.rsnr)+"_rnoise"+opt.rgb_noise
+        savename += "_rnoise"+opt.rgb_noise+"_nvalue"+str(opt.rnoise_value)
+
+    if opt.add_thr_noise and opt.mode in [2,4,7]:
+        savename += "_tnoise"+opt.thr_noise+"_nvalue"+str(opt.tnoise_value)
 
     if opt.add_audio_noise and opt.mode in [3,7]:
-        savename += "_asnr"+str(opt.asnr)+"_anoise"+opt.audio_noise
+        savename += "_anoise"+opt.audio_noise+"_nvalue"+str(opt.anoise_value)
 
     (path, name) = os.path.split(savename)
     if(not os.path.exists(path)):

@@ -1,4 +1,4 @@
-gpu = '9'
+gpu = '1'
 random_seed = 0
 mode = 1    # 1-rgb images, 2-thermal images, 3-audio, 4-rgb and thermal images, 8-all 
 
@@ -11,17 +11,22 @@ valid_path = 'datasets/SpeakingFaces/valid_data'
 test_path = 'datasets/SpeakingFaces/test_data'
 
 #image file options
-num_frames = 5
-add_rgb_noise = True
-rgb_noise = 'gauss'   # 'gauss', 
-rsnr = 50.0    # signal to noise ration
+num_frames = 1
+
+add_rgb_noise = False 
+rgb_noise = 'blur'      # 'gauss', 'blur'
+rnoise_value = 512      # 'gauss' -> SNR, 'blur' -> kernel size
+
+add_thr_noise = False
+thr_noise = 'gauss'   # 'gauss', 
+tnoise_value = 25    # 'gauss' -> SNR
 
 #audio file options
 segment_len = 0.2   # seconds
 sample_rate = 44100 # audio file sampling rate
-add_audio_noise = True
+add_audio_noise = False
 audio_noise = 'gauss'   # 'gauss', 
-asnr = 0.005    # signal to noise ration
+anoise_value = 0.005    # signal to noise ration
 
 #model options
 batch_size = 128
