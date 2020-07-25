@@ -99,12 +99,16 @@ def train(model):
 
     print("Loading data...")
     dataset = MyDataset(opt,'train')
-    loader  = dataset2dataloader(dataset)
+    loader  = dataset2dataloader(dataset, shuffle=False)
     print('Number of training data: {}'.format(len(dataset)))
 
     valid_dataset = MyDataset(opt,'valid')
     valid_loader = dataset2dataloader(valid_dataset, shuffle=False)
     print('Number of validation data: {}'.format(len(valid_dataset)))
+
+    test_dataset = MyDataset(opt,'test')
+    test_loader = dataset2dataloader(test_dataset, shuffle=False)
+    print('Number of test data: {}'.format(len(test_dataset)))
 
     #optimizer = optim.Adam(model.parameters(), lr=opt.base_lr, weight_decay=opt.weight_decay, amsgrad=True)
     optimizer = optim.Adadelta(model.parameters(), lr=opt.base_lr, weight_decay=opt.weight_decay)
@@ -177,10 +181,10 @@ def train(model):
         (valid_loss, valid_acc, valid_time) = test(model, valid_loader, valid_dataset)
         print('VALID SET: lr={}, total loss={:.8f}, time={:.2f}m, best acc={:.3f}, acc={:.3f}'.format(
                     show_lr(optimizer), valid_loss/len(valid_dataset), valid_time, best_acc, valid_acc))
-        print('Best acc={:.3f}, best epoch={}'.format(best_acc, best_epoch))
+        print('Best valid acc={:.3f}, best epoch={}'.format(best_acc, best_epoch))
         tmp_savename = savename + "_bestEpoch"+str(best_epoch)+".py"
         print("Model {}".format(os.path.split(tmp_savename)[1]))
-        print(''.join(81*'*') + '\n')
+        print(''.join(81*'*'))
         scheduler.step(valid_loss)
         #writer.add_scalar('val loss', loss, epoch)
         #writer.add_scalar('val acc', acc, epoch)
@@ -190,12 +194,19 @@ def train(model):
             best_epoch = epoch
             print("Saving the best model (best acc={:.3f})".format(best_acc))
             torch.save(model.state_dict(), tmp_savename)
+
     print('\n' + ''.join(81*'*'))
     print("Total trianing time = {:.2f}m".format((time.time()-tic)/60))
     print("Best valid acc = {:.3f}".format(best_acc))
     print("Model {}".format(os.path.split(tmp_savename)[1]))
     print('\n' + ''.join(81*'*'))
 
+    print('\n' + ''.join(81*'*'))
+    #Evaluate model on the test set
+    (test_loss, test_acc, test_time) = test(model, test_loader, test_dataset)
+    print('TEST SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
+                    test_loss/len(test_dataset), test_time, test_acc))
+    print(''.join(81*'*'))
 
 if(__name__ == '__main__'):
     print("Loading options...")

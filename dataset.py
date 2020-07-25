@@ -84,7 +84,7 @@ class MyDataset(Dataset):
                         rgb_images_tmp = list(filter(lambda image: image.split('_')[4] == cmd, rgb_images))
                         rgb_images_tmp = sorted(rgb_images_tmp, key=lambda image: int(image.split('_')[5]))
                         if len(rgb_images_tmp) < self.num_frames:
-                            print("This record has insufficient number of frames: "+record)
+                            print("This record has insufficient number of rgb frames: "+record)
                             continue
                         #downsample image stream
                         rgb_images_tmp = [rgb_images_tmp[i] for i in np.linspace(0,len(rgb_images_tmp),
@@ -109,7 +109,7 @@ class MyDataset(Dataset):
                         thr_images_tmp = list(filter(lambda image: image.split('_')[4] == cmd, thr_images))
                         thr_images_tmp = sorted(thr_images_tmp, key=lambda image: int(image.split('_')[5]))
                         if len(thr_images_tmp) < self.num_frames:
-                            print("This record has insufficient number of frames: "+record)
+                            print("This record has insufficient number of thermal frames: "+record)
                             continue
                         #downsample image stream
                         thr_images_tmp = [thr_images_tmp[i] for i in np.linspace(0,len(thr_images_tmp),
@@ -178,7 +178,7 @@ class MyDataset(Dataset):
             sig_avg_db      = 10*np.log10(sig_avg_watts)
             noise_avg_db    = sig_avg_db - target_snr_db
             noise_avg_watts = 10**(noise_avg_db/10)
-            row,col,ch= image.shape
+            row,col,ch = image.shape
             mean = 0
             sigma = np.sqrt(noise_avg_watts)
             gauss = np.random.normal(mean,sigma,(row,col,ch))
