@@ -31,8 +31,7 @@ def show_lr(optimizer):
     return np.array(lr).mean()
 
 
-#def test(model, net):
-def test(model, loader, dataset):
+def test(model, loader, dataset, test=False):
     with torch.no_grad():
         tic = time.time()
         model.eval()
@@ -44,25 +43,30 @@ def test(model, loader, dataset):
             gender = input.get('gender').cuda()
             if opt.mode == 1:
                 rgb_images  = input.get('rgb_images').cuda()
+                sub         = input.get('sub')
                 output      = model(x1=rgb_images).view(-1)
                 counter     += len(rgb_images)
             elif opt.mode == 2:
                 thr_images  = input.get('thr_images').cuda()
+                sub         = input.get('sub')
                 output      = model(x2=thr_images).view(-1)
                 counter     += len(thr_images)
             elif opt.mode == 3:
                 audio       = input.get('audio').cuda()
+                sub         = input.get('sub')
                 output      = model(x3=audio).view(-1)
                 counter     += len(audio)
             elif opt.mode == 4:
                 rgb_images  = input.get('rgb_images').cuda()
                 thr_images  = input.get('thr_images').cuda()
+                sub         = input.get('sub')
                 output      = model(x1=rgb_images, x2=thr_images).view(-1)
                 counter     += len(rgb_images)
             elif opt.mode == 7:
                 rgb_images  = input.get('rgb_images').cuda()
                 thr_images  = input.get('thr_images').cuda()
                 audio       = input.get('audio').cuda()
+                sub         = input.get('sub')
                 output      = model(x1=rgb_images, x2=thr_images, x3=audio).view(-1)
                 counter     += len(rgb_images)
  
@@ -72,6 +76,10 @@ def test(model, loader, dataset):
             output = torch.sigmoid(output)
             output = (output>0.5).float()
             correct += (output == gender).float().sum()
+            if opt.print_errors and test:
+                for i, s in enumerate(zip(output, gender)):
+                    if s[0] != s[1]:
+                        print("Incorrect output: {}".format(sub[i]))
 
  
         acc = 100 * correct / len(dataset)
@@ -80,53 +88,72 @@ def test(model, loader, dataset):
 
 #def train(model, net):
 def train(model):
-    savename = ('{0:}_bs{1:}_lr{2:}_wd{3:}_patience{4:}_drop{5:}_epoch{6:}_mode{7:}').format(
-                    opt.save_prefix, opt.batch_size, opt.base_lr, opt.weight_decay, opt.patience, 
-                    opt.drop, opt.max_epoch, opt.mode)
+    savename = ('{0:}_mode{1:}_lr{2:}_wd{3:}_patience{4:}_drop{5:}_epoch{6:}_bs{7:}_seed{8:}_clip{9:}').format(
+                    opt.save_prefix, opt.mode, opt.base_lr, opt.weight_decay, opt.patience, opt.drop,
+                    opt.max_epoch, opt.batch_size, opt.random_seed, opt.clip)
 
-    if opt.add_rgb_noise and opt.mode in [1,4,7]:
-        savename += "_rnoise"+opt.rgb_noise+"_nvalue"+str(opt.rnoise_value)
+    if opt.mode in [1,4,7]:
+        savename += "_rfr"+str(opt.num_frames)
+        if opt.add_rgb_noise:
+            savename += "_rnoise"+opt.rgb_noise+"_rnvalue"+str(opt.rnoise_value)
 
-    if opt.add_thr_noise and opt.mode in [2,4,7]:
-        savename += "_tnoise"+opt.thr_noise+"_nvalue"+str(opt.tnoise_value)
+    if opt.mode in [2,4,7]:
+        savename += "_tfr"+str(opt.num_frames)
+        if opt.add_thr_noise:
+            savename += "_tnoise"+opt.thr_noise+"_tnvalue"+str(opt.tnoise_value)
 
-    if opt.add_audio_noise and opt.mode in [3,7]:
-        savename += "_anoise"+opt.audio_noise+"_nvalue"+str(opt.anoise_value)
+    if opt.mode in [3,7]:
+        savename += "_len"+str(opt.segment_len)
+        if opt.add_audio_noise:
+            savename += "_anoise"+opt.audio_noise+"_anvalue"+str(opt.anoise_value)
 
     (path, name) = os.path.split(savename)
     if(not os.path.exists(path)):
         os.makedirs(path)
 
     print("Loading data...")
-    dataset = MyDataset(opt,'train')
+    dataset = MyDataset(opt,'train',noise=opt.train_noise)
     loader  = dataset2dataloader(dataset, shuffle=False)
-    print('Number of training data: {}'.format(len(dataset)))
+    print('Training data size: {}'.format(len(dataset)))
 
-    valid_dataset = MyDataset(opt,'valid')
+    valid_dataset = MyDataset(opt,'valid',noise=opt.valid_noise)
     valid_loader = dataset2dataloader(valid_dataset, shuffle=False)
-    print('Number of validation data: {}'.format(len(valid_dataset)))
+    print('Validation data size: {}'.format(len(valid_dataset)))
 
-    test_dataset = MyDataset(opt,'test')
+    test_dataset = MyDataset(opt,'test',noise=opt.test_noise)
     test_loader = dataset2dataloader(test_dataset, shuffle=False)
-    print('Number of test data: {}'.format(len(test_dataset)))
+    print('Test data size: {}'.format(len(test_dataset)))
 
-    #optimizer = optim.Adam(model.parameters(), lr=opt.base_lr, weight_decay=opt.weight_decay, amsgrad=True)
-    optimizer = optim.Adadelta(model.parameters(), lr=opt.base_lr, weight_decay=opt.weight_decay)
-    #optimizer = optim.SGD(model.parameters(), lr=opt.base_lr, weight_decay=opt.weight_decay,
-    #                      momentum=0.9,nesterov=True)
+    if opt.warmup_epochs > 0:
+        warmup = True
+        savename += "_warmuplr"+str(opt.warmup_lr)+"_warmupepochs"+str(opt.warmup_epochs)
+        optimizer = optim.Adadelta(model.parameters(), lr=opt.warmup_lr)
+    else:
+        warmup = False
+        #optimizer = optim.Adam(model.parameters(), lr=opt.base_lr, weight_decay=opt.weight_decay, amsgrad=True)
+        optimizer = optim.Adadelta(model.parameters(), lr=opt.base_lr, weight_decay=opt.weight_decay)
+        #optimizer = optim.SGD(model.parameters(), lr=opt.base_lr, weight_decay=opt.weight_decay,
+        #                      momentum=0.9,nesterov=True)
 
-    #scheduler
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5,
-                    patience=opt.patience, verbose=True, threshold=1e-4)
+        #scheduler
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5,
+                        patience=opt.patience, verbose=True, threshold=1e-4)
 
     loss_fn = nn.BCEWithLogitsLoss()
     tic = time.time()
     best_acc = 0
     best_epoch = 0
 
-    for epoch in range(opt.max_epoch):
+    for epoch in range(opt.max_epoch+opt.warmup_epochs):
         tic_epoch = time.time()
         model.train()
+        if warmup and epoch >= opt.warmup_epochs:
+            print("\nWARMUP IS COMPLETE!")
+            warmup = False
+            optimizer = optim.Adadelta(model.parameters(), lr=opt.base_lr, weight_decay=opt.weight_decay)
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5,
+                            patience=opt.patience, verbose=True, threshold=1e-4)
+
         correct = 0
         counter = 0
         total_loss = 0
@@ -163,8 +190,8 @@ def train(model):
 
             if opt.is_clip:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), opt.clip)
-            if opt.is_optimize:
-                optimizer.step()
+
+            optimizer.step()
 
             tot_iter = i_iter + epoch*len(loader)
             output = torch.sigmoid(output)
@@ -174,63 +201,138 @@ def train(model):
 
         train_acc = 100 * correct / len(dataset)
         print('\n' + ''.join(81*'*'))
-        print('TRAIN SET: EPOCH={}, total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(epoch,
+        print('EPOCH={}, lr={}'.format(epoch, show_lr(optimizer)))
+        print('TRAIN SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
                     total_loss/len(dataset),(time.time()-tic_epoch)/60, train_acc))
 
         #Evaluate model on the validation set
         (valid_loss, valid_acc, valid_time) = test(model, valid_loader, valid_dataset)
-        print('VALID SET: lr={}, total loss={:.8f}, time={:.2f}m, best acc={:.3f}, acc={:.3f}'.format(
-                    show_lr(optimizer), valid_loss/len(valid_dataset), valid_time, best_acc, valid_acc))
+        print('VALID SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
+                    valid_loss/len(valid_dataset), valid_time, valid_acc))
         print('Best valid acc={:.3f}, best epoch={}'.format(best_acc, best_epoch))
-        tmp_savename = savename + "_bestEpoch"+str(best_epoch)+".py"
-        print("Model {}".format(os.path.split(tmp_savename)[1]))
+        tmp_savename = savename + "_bestEpoch"+str(best_epoch)+".torch"
+        print("MODEL: {}".format(os.path.split(tmp_savename)[1]))
         print(''.join(81*'*'))
-        scheduler.step(valid_loss)
+        if not warmup:
+            scheduler.step(valid_loss)
         #writer.add_scalar('val loss', loss, epoch)
         #writer.add_scalar('val acc', acc, epoch)
  
         if best_acc < valid_acc:
             best_acc = valid_acc
             best_epoch = epoch
+            tmp_savename = savename + "_bestEpoch"+str(best_epoch)+".torch"
             print("Saving the best model (best acc={:.3f})".format(best_acc))
             torch.save(model.state_dict(), tmp_savename)
 
     print('\n' + ''.join(81*'*'))
     print("Total trianing time = {:.2f}m".format((time.time()-tic)/60))
     print("Best valid acc = {:.3f}".format(best_acc))
-    print("Model {}".format(os.path.split(tmp_savename)[1]))
-    print('\n' + ''.join(81*'*'))
+    print("MODEL: {}".format(os.path.split(tmp_savename)[1]))
+    print(''.join(81*'*'))
 
     print('\n' + ''.join(81*'*'))
+    load_model(model, tmp_savename)
     #Evaluate model on the test set
-    (test_loss, test_acc, test_time) = test(model, test_loader, test_dataset)
+    (test_loss, test_acc, test_time) = test(model, test_loader, test_dataset, test=True)
     print('TEST SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
                     test_loss/len(test_dataset), test_time, test_acc))
     print(''.join(81*'*'))
 
+def load_model(model, path):
+    print("\n"+"Loading model...")
+    print("Model name: {}".format(path))
+    pretrained_dict = torch.load(path)
+    model_dict = model.state_dict()
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() 
+                            if k in model_dict.keys() and v.size() == model_dict[k].size()}
+    missed_params = [k for k, v in model_dict.items() if not k in pretrained_dict.keys()]
+    print('loaded params/tot params:{}/{}'.format(len(pretrained_dict),len(model_dict)))
+    print('missmatched params:{}'.format(missed_params))
+    model_dict.update(pretrained_dict)
+    model.load_state_dict(model_dict)
+
+
+
 if(__name__ == '__main__'):
-    print("Loading options...")
-    #model = LipNet(opt)
-    model = SFNet(opt).cuda()
-    #model = model.cuda()
-    #net = nn.DataParallel(model).cuda()
-
-    if(hasattr(opt, 'weights')):
-        pretrained_dict = torch.load(opt.weights)
-        model_dict = model.state_dict()
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() 
-                                if k in model_dict.keys() and v.size() == model_dict[k].size()}
-        missed_params = [k for k, v in model_dict.items() if not k in pretrained_dict.keys()]
-        print('loaded params/tot params:{}/{}'.format(len(pretrained_dict),len(model_dict)))
-        print('miss matched params:{}'.format(missed_params))
-        model_dict.update(pretrained_dict)
-        model.load_state_dict(model_dict)
-
     torch.manual_seed(opt.random_seed)
     torch.cuda.manual_seed_all(opt.random_seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     np.random.seed(opt.random_seed)
-    #train(model, net)
-    train(model)
+    print("Building model...")
+    #model = LipNet(opt)
+    model = SFNet(opt).cuda()
+    #model = model.cuda()
+    #net = nn.DataParallel(model).cuda()
+    if(hasattr(opt, 'weights')):
+        #print("\n"+"Loading model...")
+        #pretrained_dict = torch.load(opt.weights)
+        #model_dict = model.state_dict()
+        #pretrained_dict = {k: v for k, v in pretrained_dict.items() 
+        #                        if k in model_dict.keys() and v.size() == model_dict[k].size()}
+        #missed_params = [k for k, v in model_dict.items() if not k in pretrained_dict.keys()]
+        #print('loaded params/tot params:{}/{}'.format(len(pretrained_dict),len(model_dict)))
+        #print('miss matched params:{}'.format(missed_params))
+        #model_dict.update(pretrained_dict)
+        #model.load_state_dict(model_dict)
+
+
+
+        print("\n"+"Loading valid data...")
+        valid_dataset = MyDataset(opt,'valid',noise=opt.valid_noise)
+        valid_loader = dataset2dataloader(valid_dataset, shuffle=False)
+        print('Validation data size: {}'.format(len(valid_dataset)))
+
+        print("\n"+"Loading test data...")
+        test_dataset = MyDataset(opt,'test',noise=opt.test_noise)
+        test_loader = dataset2dataloader(test_dataset, shuffle=False)
+        print('Test data size: {}'.format(len(test_dataset)))
+
+        if True:
+            #mode1
+            #model_names=['models/mmnet_bs256_lr0.1_wd0.0_patience20_drop0.2_epoch200_mode1_seed0_clip10_rfr3_bestEpoch100.torch','models/mmnet_bs256_lr0.1_wd0.0_patience20_drop0.2_epoch200_mode1_seed1_clip10_rfr3_bestEpoch66.torch','models/mmnet_bs256_lr0.1_wd0.0_patience20_drop0.2_epoch200_mode1_seed2_clip10_rfr3_bestEpoch102.torch','models/mmnet_bs256_lr0.1_wd0.0_patience20_drop0.2_epoch200_mode1_seed3_clip10_rfr3_bestEpoch64.torch','models/mmnet_bs256_lr0.1_wd0.0_patience20_drop0.2_epoch200_mode1_seed4_clip10_rfr3_bestEpoch96.torch']
+
+            #mode2
+            #model_names=['models/mmnet_bs256_lr0.1_wd0.0_patience20_drop0.4_epoch200_mode2_seed0_clip10_tfr3_bestEpoch192.torch','models/mmnet_mode2_lr0.1_wd0.0_patience20_drop0.4_epoch200_bs256_seed2_clip10_tfr3_bestEpoch177.torch','models/mmnet_mode2_lr0.1_wd0.0_patience20_drop0.4_epoch200_bs256_seed3_clip10_tfr3_bestEpoch185.torch','models/mmnet_mode2_lr0.1_wd0.0_patience20_drop0.4_epoch200_bs256_seed5_clip10_tfr3_bestEpoch198.torch','models/mmnet_mode2_lr0.1_wd0.0_patience20_drop0.4_epoch200_bs256_seed7_clip10_tfr3_bestEpoch185.torch']
+
+            #mode3
+            #model_names=['models/mmnet_mode3_lr0.1_wd0.0_patience20_drop0.3_epoch200_bs256_seed0_clip10_len0.4_bestEpoch134.torch','models/mmnet_mode3_lr0.1_wd0.0_patience20_drop0.3_epoch200_bs256_seed1_clip10_len0.4_bestEpoch93.torch','models/mmnet_mode3_lr0.1_wd0.0_patience20_drop0.3_epoch200_bs256_seed2_clip10_len0.4_bestEpoch119.torch','models/mmnet_mode3_lr0.1_wd0.0_patience20_drop0.3_epoch200_bs256_seed3_clip10_len0.4_bestEpoch135.torch','models/mmnet_mode3_lr0.1_wd0.0_patience20_drop0.3_epoch200_bs256_seed4_clip10_len0.4_bestEpoch107.torch']
+
+            #mode4
+            #model_names=['models/mmnet_mode4_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed0_clip10_rfr3_tfr3_bestEpoch121.torch','models/mmnet_mode4_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed1_clip10_rfr3_tfr3_bestEpoch52.torch','models/mmnet_mode4_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed2_clip10_rfr3_tfr3_bestEpoch74.torch','models/mmnet_mode4_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed3_clip10_rfr3_tfr3_bestEpoch89.torch','models/mmnet_mode4_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed4_clip10_rfr3_tfr3_bestEpoch73.torch']
+
+            #mode7
+            model_names=['models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed0_clip10_rfr3_tfr3_len0.4_bestEpoch61.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed1_clip10_rfr3_tfr3_len0.4_bestEpoch63.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed2_clip10_rfr3_tfr3_len0.4_bestEpoch61.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed3_clip10_rfr3_tfr3_len0.4_bestEpoch63.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed4_clip10_rfr3_tfr3_len0.4_bestEpoch65.torch']
+
+            for m in model_names:
+                load_model(model, m)
+                print("\n"+"Evaluating...")
+                #Evaluate model on the test set
+                print(''.join(81*'*'))
+                (valid_loss, valid_acc, valid_time) = test(model, valid_loader, valid_dataset, test=True)
+                print('VALID SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
+                        valid_loss/len(valid_dataset), valid_time, valid_acc))
+                print(''.join(81*'*'))
+                (test_loss, test_acc, test_time) = test(model, test_loader, test_dataset, test=True)
+                print('TEST SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
+                        test_loss/len(test_dataset), test_time, test_acc))
+                print(''.join(81*'*'))
+            exit()
+
+        load_model(model, opt.weights)
+
+        print("\n"+"Evaluating...")
+        #Evaluate model on the test set
+        print(''.join(81*'*'))
+        (valid_loss, valid_acc, valid_time) = test(model, valid_loader, valid_dataset, test=True)
+        print('VALID SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
+                    valid_loss/len(valid_dataset), valid_time, valid_acc))
+        print(''.join(81*'*'))
+        (test_loss, test_acc, test_time) = test(model, test_loader, test_dataset, test=True)
+        print('TEST SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
+                    test_loss/len(test_dataset), test_time, test_acc))
+        print(''.join(81*'*'))
+    else:
+        train(model)
 

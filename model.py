@@ -19,6 +19,8 @@ class ImageEncoder(torch.nn.Module):
         #Recurrecnt layers
         self.gru1  = nn.GRU(128*6*8, 256, 1, bidirectional=True) # images
         self.gru2  = nn.GRU(512, 256, 1, bidirectional=True)
+        #self.gru1  = nn.LSTM(128*6*8, 256, 1, bidirectional=True) # images
+        #self.gru2  = nn.LSTM(512, 256, 1, bidirectional=True)
 
         #Fully connected layers
         self.FC1   = nn.Linear(512, 64) 
@@ -72,6 +74,7 @@ class ImageEncoder(torch.nn.Module):
         x = self.dropout(x)
         return x
 
+
 class AudioEncoder(torch.nn.Module):
     def __init__(self, opt):
         super(AudioEncoder, self).__init__()
@@ -87,7 +90,8 @@ class AudioEncoder(torch.nn.Module):
 
         #Fully connected layers
         self.FC1   = nn.Linear(512, 64) 
-        self.FC2   = nn.Linear(64*(int(opt.segment_len*opt.sample_rate)//512+1), 64)    # audio
+        self.FC2   = nn.Linear(64*(int(opt.segment_len*opt.sample_rate)//200+1), 64)    # audio
+        #200 is length of hop between STFT windows
 
         #Activation functions
         self.relu = nn.ReLU(inplace=True)

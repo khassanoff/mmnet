@@ -7,6 +7,7 @@ import os
 from torch.utils.data import Dataset
 import torch
 import torch.nn.functional as F
+import torchaudio
 import glob
 import re
 import copy
@@ -18,13 +19,26 @@ import csv, pdb
 
 
 class MyDataset(Dataset):
-    def __init__(self, opt, data_type='train'):
+    def __init__(self, opt, data_type='train', noise=False):
+
+        #pdb_bool = True
+
         if data_type.lower() == 'train':
             self.data_path = opt.train_path
         elif data_type.lower() == 'valid':
             self.data_path = opt.valid_path
         elif data_type.lower() == 'test':
             self.data_path = opt.test_path
+
+        self.opt = opt
+        self.noise = noise
+        if self.noise:
+            if opt.mode in [1,4,7] and opt.add_rgb_noise:       #rgb images
+                print("Adding {} noise to visual data (STD {})".format(opt.rgb_noise, opt.rnoise_value))
+            if opt.mode in [2,4,7] and opt.add_thr_noise:       #rgb images
+                print("Adding {} noise to thermal data (STD {})".format(opt.thr_noise, opt.tnoise_value))
+            if opt.mode in [3,7] and opt.add_audio_noise:       #rgb images
+                print("Adding {} noise to audio data (STD {})".format(opt.audio_noise, opt.anoise_value))
 
         self.sub_path       = opt.sub_path
         self.num_frames     = opt.num_frames
@@ -95,7 +109,7 @@ class MyDataset(Dataset):
                         rgb_array = list(filter(lambda image: not image is None, rgb_array))
 
                         #add noise
-                        if opt.add_rgb_noise:
+                        if self.noise and opt.add_rgb_noise:
                             rgb_array = [self.add_image_noise(image, opt.rgb_noise, opt.rnoise_value)
                                             for image in rgb_array]
 
@@ -120,7 +134,7 @@ class MyDataset(Dataset):
                         thr_array = list(filter(lambda image: not image is None, thr_array))
 
                         #add noise
-                        if opt.add_thr_noise:
+                        if self.noise and opt.add_thr_noise:
                             thr_array = [self.add_image_noise(image, opt.thr_noise, opt.tnoise_value)
                                             for image in thr_array]
 
@@ -131,10 +145,13 @@ class MyDataset(Dataset):
                         thr_array = np.stack(thr_array, axis=0).astype(np.float32)
 
                     if self.mode in [3,7]:
-                        audio, _ = librosa.core.load(os.path.join(self.data_path, sub, trial,
-                                            'mic1_audio_cmd_trim', record), sr=self.sr)
-                        audio, _ = librosa.effects.trim(audio)
-                        if opt.add_audio_noise:
+                        #audio, _ = librosa.core.load(os.path.join(self.data_path, sub, trial,
+                        #                    'mic1_audio_cmd_trim', record), sr=self.sr)
+                        #audio, _ = librosa.effects.trim(audio)
+                        audio, samplerate = torchaudio.load(os.path.join(self.data_path, sub,
+                                                        trial, 'mic1_audio_cmd_trim', record))
+                        audio = audio.squeeze()
+                        if self.noise and opt.add_audio_noise:
                             #add additive white Gaussian noise (AWGN)
                             audio    = self.add_audio_noise(audio, opt.audio_noise, opt.anoise_value)
                         if len(audio) < self.segment_len*self.sr:
@@ -152,35 +169,38 @@ class MyDataset(Dataset):
                             spec = (spec - mu)/(std + 1e-5)
                         else:
                         # mel spectogram features
-                            spec = librosa.feature.melspectrogram(audio, sr=self.sr)
-                            spec = np.stack(spec, axis=0).astype(np.float32)
+                            #spec = librosa.feature.melspectrogram(audio, sr=self.sr)
+                            spec = torchaudio.transforms.MelSpectrogram()(audio)
+                            ##spec = np.stack(spec, axis=0).astype(np.float32)
                             spec = spec.transpose(1,0) # (Feature, Time) -> (Time, Feature)
-                            spec = np.expand_dims(spec,axis=(2,3)) # (T,F) -> (T,H,W,C)
+                            spec = spec.unsqueeze(2)
+                            spec = spec.unsqueeze(3)
+                            #spec = np.expand_dims(spec,axis=(2,3)) # (T,F) -> (T,H,W,C)
 
-
-                    if self.mode == 1:       #rgb images
-                        self.data.append([rgb_array, gender])
-                    elif self.mode == 2:     #thermal images
-                        self.data.append([thr_array, gender])
-                    elif self.mode == 3:      #audio
-                        self.data.append([spec, gender])
-                    elif self.mode == 4:      #audio
-                        self.data.append([rgb_array, thr_array, gender])
-                    elif self.mode == 7:      #audio
-                        self.data.append([rgb_array, thr_array, spec, gender])
+                    if self.mode == 1:      #rgb images
+                        self.data.append([rgb_array, gender, sub])
+                    elif self.mode == 2:    #thermal images
+                        self.data.append([thr_array, gender, sub])
+                    elif self.mode == 3:    #audio
+                        self.data.append([spec, gender, sub])
+                    elif self.mode == 4:    #audio
+                        self.data.append([rgb_array, thr_array, gender, sub])
+                    elif self.mode == 7:    #audio
+                        self.data.append([rgb_array, thr_array, spec, gender, sub])
         #print("Total number of recordings: "+str(len(self.data)))
 
 
     def add_image_noise(self, image, noise_type='gauss', noise_value=10):
         if noise_type.lower() == "gauss":
-            target_snr_db   = 10*np.log10(noise_value)
-            sig_avg_watts   = np.sum(image**2)/len(image)
-            sig_avg_db      = 10*np.log10(sig_avg_watts)
-            noise_avg_db    = sig_avg_db - target_snr_db
-            noise_avg_watts = 10**(noise_avg_db/10)
+            #target_snr_db   = 10*np.log10(noise_value)
+            #sig_avg_watts   = np.sum(image**2)/len(image)
+            #sig_avg_db      = 10*np.log10(sig_avg_watts)
+            #noise_avg_db    = sig_avg_db - target_snr_db
+            #noise_avg_watts = 10**(noise_avg_db/10)
             row,col,ch = image.shape
             mean = 0
-            sigma = np.sqrt(noise_avg_watts)
+            #sigma = np.sqrt(noise_avg_watts)
+            sigma = noise_value
             gauss = np.random.normal(mean,sigma,(row,col,ch))
             gauss = gauss.reshape(row,col,ch)
             noisy_image = image + gauss
@@ -195,61 +215,75 @@ class MyDataset(Dataset):
 
 
     def add_audio_noise(self, audio, noise_type='gauss', noise_value=10):
-        #pdb.set_trace()
         if noise_type.lower() == "gauss":
-            target_snr_db   = 10*np.log10(noise_value)
+            #target_snr_db   = 10*np.log10(noise_value)
             # Calculate signal power and convert to dB 
-            sig_avg_watts   = np.sum(audio**2)/len(audio)
-            sig_avg_db      = 10*np.log10(sig_avg_watts)
+            #sig_avg_watts   = np.sum(audio**2)/len(audio)
+            #sig_avg_db      = 10*np.log10(sig_avg_watts)
             # Calculate noise according to [2] then convert to watts
-            noise_avg_db    = sig_avg_db - target_snr_db
-            noise_avg_watts = 10**(noise_avg_db/10)
+            #noise_avg_db    = sig_avg_db - target_snr_db
+            #noise_avg_watts = 10**(noise_avg_db/10)
             # Generate an sample of white noise
             mean_noise = 0
-            noise_volts = np.random.normal(mean_noise, np.sqrt(noise_avg_watts), len(audio))
+            sigma = noise_value
+            #sigma = np.sqrt(noise_avg_watts)
+            #noise_volts = np.random.normal(mean_noise, sigma, len(audio))
+            noise_volts = torch.normal(mean_noise, sigma, size=(len(audio),))
+            #noise_volts = noise_volts.astype('float16')
             # print("noise_volts len: "+str(len(noise_volts)))
             # Noise up the original signal
             y_volts = audio + noise_volts
+            #y_volts = audio.astype('float16') + noise_volts.astype('float16')
         else:
             print("Incorrect audio noise type is given! Terminating ...")
             exit()
 
-        return y_volts.astype('float32')
-        
+        #return y_volts.astype('float32')
+        return y_volts
 
 
     def __getitem__(self, idx):
         if self.mode == 1:       #rgb images
-            (rgb_images, gender) = self.data[idx]
+            (rgb_images, gender, sub) = self.data[idx]
             # (T, H, W, C)->(C, T, H, W)
             return {'rgb_images': torch.FloatTensor(rgb_images.transpose(3, 0, 1, 2)), 
-                    'gender': float(gender)}
+                    'gender': float(gender),
+                    'sub': sub}
         elif self.mode == 2:     #thermal images
-            (thr_images, gender) = self.data[idx]
+            (thr_images, gender, sub) = self.data[idx]
             # (T, H, W, C)->(C, T, H, W)
             return {'thr_images': torch.FloatTensor(thr_images.transpose(3, 0, 1, 2)),
-                    'gender': float(gender)}
+                    'gender': float(gender),
+                    'sub': sub}
         elif self.mode == 3:     #audio
-            (audio, gender) = self.data[idx]
-            audio = np.pad(audio,((0,0),(0,0),(0,0),(1,1)))
-            #audio = F.pad(x,(1,1),"constant", 0)
+            (audio, gender, sub) = self.data[idx]
+            #audio = np.pad(audio,((0,0),(0,0),(0,0),(1,1)))
+            audio = F.pad(audio,(1,1),"constant", 0)
             # (T, H, W, C)->(C, T, H, W)
-            return {'audio': torch.FloatTensor(audio.transpose(3, 0, 1, 2)),
-                    'gender': float(gender)}
+            return {'audio': audio.permute(3, 0, 1, 2),
+                    'gender': float(gender),
+                    'sub': sub}
+            #return {'audio': torch.FloatTensor(audio.transpose(3, 0, 1, 2)),
+            #        'gender': float(gender),
+            #        'sub': sub}
         elif self.mode == 4:       #rgb images
-            (rgb_images, thr_images, gender) = self.data[idx]
+            (rgb_images, thr_images, gender, sub) = self.data[idx]
             # (T, H, W, C)->(C, T, H, W)
             return {'rgb_images': torch.FloatTensor(rgb_images.transpose(3, 0, 1, 2)), 
                     'thr_images': torch.FloatTensor(thr_images.transpose(3, 0, 1, 2)),
-                    'gender': float(gender)}
+                    'gender': float(gender),
+                    'sub': sub}
         elif self.mode == 7:
-            (rgb_images, thr_images, audio, gender) = self.data[idx]
-            audio = np.pad(audio,((0,0),(0,0),(0,0),(1,1)))
+            (rgb_images, thr_images, audio, gender, sub) = self.data[idx]
+            #audio = np.pad(audio,((0,0),(0,0),(0,0),(1,1)))
+            audio = F.pad(audio,(1,1),"constant", 0)
             # (T, H, W, C)->(C, T, H, W)
             return {'rgb_images': torch.FloatTensor(rgb_images.transpose(3, 0, 1, 2)), 
                     'thr_images': torch.FloatTensor(thr_images.transpose(3, 0, 1, 2)),
-                    'audio': torch.FloatTensor(audio.transpose(3, 0, 1, 2)),
-                    'gender': float(gender)}
+                    #'audio': torch.FloatTensor(audio.transpose(3, 0, 1, 2)),
+                    'audio': audio.permute(3, 0, 1, 2),
+                    'gender': float(gender),
+                    'sub': sub}
 
     def __len__(self):
         return len(self.data)
