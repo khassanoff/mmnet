@@ -1,11 +1,8 @@
 import torch 
 import torch.nn as nn
-import torch.nn.init as init
 import torch.nn.functional as F
-import math
 import numpy as np
 import pdb
-
 
 class ImageEncoder(torch.nn.Module):
     def __init__(self, opt):
@@ -19,14 +16,12 @@ class ImageEncoder(torch.nn.Module):
         #Recurrecnt layers
         self.gru1  = nn.GRU(128*6*8, 256, 1, bidirectional=True) # images
         self.gru2  = nn.GRU(512, 256, 1, bidirectional=True)
-        #self.gru3  = nn.GRU(512, 256, 1, bidirectional=True)
-        #self.gru4  = nn.GRU(512, 256, 1, bidirectional=True)
 
         #Fully connected layers
         self.FC1   = nn.Linear(512, 64) 
         self.FC2   = nn.Linear(64*opt.num_frames, 64)
 
-        #Activation functions
+        #Activation function
         self.relu = nn.ReLU(inplace=True)
     
         #Dropout
@@ -62,10 +57,6 @@ class ImageEncoder(torch.nn.Module):
         x = self.dropout(x)
         x, h = self.gru2(x)
         x = self.dropout(x)
-        #x, h = self.gru3(x)
-        #x = self.dropout(x)
-        #x, h = self.gru4(x)
-        #x = self.dropout(x)
 
         x = self.FC1(x)
         x = self.relu(x)
@@ -91,15 +82,13 @@ class AudioEncoder(torch.nn.Module):
         #Recurrecnt layers
         self.gru1  = nn.GRU(128*8, 256, 1, bidirectional=True) # audio
         self.gru2  = nn.GRU(512, 256, 1, bidirectional=True)
-        #self.gru3  = nn.GRU(512, 256, 1, bidirectional=True)
-        #self.gru4  = nn.GRU(512, 256, 1, bidirectional=True)
 
         #Fully connected layers
         self.FC1   = nn.Linear(512, 64) 
         self.FC2   = nn.Linear(64*(int(opt.segment_len*opt.sample_rate)//200+1), 64)    # audio
-        #200 is length of hop between STFT windows
+        #200 is the length of hop between STFT windows
 
-        #Activation functions
+        #Activation function
         self.relu = nn.ReLU(inplace=True)
     
         #Dropout
@@ -130,17 +119,11 @@ class AudioEncoder(torch.nn.Module):
  
         self.gru1.flatten_parameters()
         self.gru2.flatten_parameters()
-        #self.gru3.flatten_parameters()
-        #self.gru4.flatten_parameters()
  
         x, h = self.gru1(x)
         x = self.dropout(x)
         x, h = self.gru2(x)
         x = self.dropout(x)
-        #x, h = self.gru3(x)
-        #x = self.dropout(x)
-        #x, h = self.gru4(x)
-        #x = self.dropout(x)
  
         x = self.FC1(x)
         x = self.relu(x)
@@ -181,7 +164,7 @@ class SFNet(torch.nn.Module):
             elif opt.mode in [7]:
                 self.FC1 = nn.Linear(64*3, 4)
         else:
-            print("Incorrect prediction value '{}' is given! TERMINATING...")
+            print("Incorrect prediction value is given! TERMINATING...")
             exit()
 
     def forward(self, x1=None, x2=None, x3=None):

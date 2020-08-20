@@ -1,35 +1,28 @@
 #!/home/ykhassanov/.conda/envs/py37_avsr/bin/python
 import torch
 import torch.nn as nn
-import torch.nn.init as init
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from tensorboardX import SummaryWriter
 from dataset import MyDataset
-#from model import LipNet
 from model import SFNet
 import numpy as np
-import math, os, sys, time, re, json, pdb
+import os, time, pdb
 
 
 if(__name__ == '__main__'):
     opt = __import__('options')
     os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpu
-    writer = SummaryWriter()
-
 
 def dataset2dataloader(dataset, num_workers=opt.num_workers, shuffle=opt.data_shuffle):
     return DataLoader(dataset, batch_size=opt.batch_size, shuffle=shuffle,
                       num_workers=num_workers, drop_last=False)
-
 
 def show_lr(optimizer):
     lr = []
     for param_group in optimizer.param_groups:
         lr += [param_group['lr']]
     return np.array(lr).mean()
-
 
 def test(model, loader, dataset, test=False):
     with torch.no_grad():
@@ -41,7 +34,7 @@ def test(model, loader, dataset, test=False):
         elif opt.predict.lower() == "age":
             loss_fn = nn.CrossEntropyLoss()
         else:
-            print("Incorrect prediction value '{}' is given! TERMINATING...")
+            print("Incorrect prediction task is given! TERMINATING...")
             exit()
 
         correct = 0
@@ -49,40 +42,40 @@ def test(model, loader, dataset, test=False):
         total_loss = 0
         for (i_iter, input) in enumerate(loader):
             label = input.get('label').cuda()
-            if opt.mode == 1:
+            if opt.mode == 1:   #rgb
                 rgb_images  = input.get('rgb_images').cuda()
                 sub         = input.get('sub')
                 output      = model(x1=rgb_images)
                 counter     += len(rgb_images)
-            elif opt.mode == 2:
+            elif opt.mode == 2: #thermal
                 thr_images  = input.get('thr_images').cuda()
                 sub         = input.get('sub')
                 output      = model(x2=thr_images)
                 counter     += len(thr_images)
-            elif opt.mode == 3:
+            elif opt.mode == 3: #audio
                 audio       = input.get('audio').cuda()
                 sub         = input.get('sub')
                 output      = model(x3=audio)
                 counter     += len(audio)
-            elif opt.mode == 4:
+            elif opt.mode == 4: #rgb+thermal
                 rgb_images  = input.get('rgb_images').cuda()
                 thr_images  = input.get('thr_images').cuda()
                 sub         = input.get('sub')
                 output      = model(x1=rgb_images, x2=thr_images)
                 counter     += len(rgb_images)
-            elif opt.mode == 5:
+            elif opt.mode == 5: #rgb+audio
                 rgb_images  = input.get('rgb_images').cuda()
                 audio       = input.get('audio').cuda()
                 sub         = input.get('sub')
                 output      = model(x1=rgb_images,x3=audio)
                 counter     += len(rgb_images)
-            elif opt.mode == 6:
+            elif opt.mode == 6: #thermal+audio
                 thr_images  = input.get('thr_images').cuda()
                 audio       = input.get('audio').cuda()
                 sub         = input.get('sub')
                 output      = model(x2=thr_images,x3=audio)
                 counter     += len(thr_images)
-            elif opt.mode == 7:
+            elif opt.mode == 7: #rgb+thermal+audio
                 rgb_images  = input.get('rgb_images').cuda()
                 thr_images  = input.get('thr_images').cuda()
                 audio       = input.get('audio').cuda()
@@ -103,18 +96,18 @@ def test(model, loader, dataset, test=False):
             elif opt.predict.lower() == "age":
                 max_index = output.max(dim = 1)[1]
                 correct += (max_index == label).float().sum()
+
             if opt.print_errors and test:
                 for i, s in enumerate(zip(output, label)):
                     if s[0] != s[1]:
                         print("Incorrect output: {}".format(sub[i]))
 
- 
-        acc = 100 * correct / len(dataset)
-        return (total_loss, acc, (time.time()-tic)/60)
+        accuracy = 100*correct/len(dataset)
 
+        return (total_loss, accuracy, (time.time()-tic)/60)
 
-#def train(model, net):
 def train(model):
+    #Construct model savename
     savename = ('{0:}_mode{1:}_lr{2:}_wd{3:}_patience{4:}_drop{5:}_epoch{6:}_bs{7:}_seed{8:}_clip{9:}').format(
                     opt.save_prefix, opt.mode, opt.base_lr, opt.weight_decay, opt.patience, opt.drop,
                     opt.max_epoch, opt.batch_size, opt.random_seed, opt.clip)
@@ -134,10 +127,12 @@ def train(model):
         if opt.add_audio_noise:
             savename += "_anoise"+opt.audio_noise+"_anvalue"+str(opt.anoise_value)
 
+    #Create a folder where models will be saved
     (path, name) = os.path.split(savename)
     if(not os.path.exists(path)):
         os.makedirs(path)
 
+    #Load data
     print("Loading data...")
     dataset = MyDataset(opt,'train',noise=opt.train_noise)
     loader  = dataset2dataloader(dataset, shuffle=False)
@@ -151,6 +146,7 @@ def train(model):
     test_loader = dataset2dataloader(test_dataset, shuffle=False)
     print('Test data size: {}'.format(len(test_dataset)))
 
+    #Setup optimizer and scheduler
     if opt.warmup_epochs > 0:
         warmup = True
         savename += "_warmuplr"+str(opt.warmup_lr)+"_warmupepochs"+str(opt.warmup_epochs)
@@ -166,6 +162,7 @@ def train(model):
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5,
                         patience=opt.patience, verbose=True, threshold=1e-4)
 
+    #Setup loss function
     if opt.predict.lower() == "gender":
         loss_fn = nn.BCEWithLogitsLoss()
     elif opt.predict.lower() == "age":
@@ -174,10 +171,10 @@ def train(model):
         print("Incorrect prediction value '{}' is given! TERMINATING...")
         exit()
 
+    #Start training process
     tic = time.time()
     best_acc = 0
     best_epoch = 0
-
     for epoch in range(opt.max_epoch+opt.warmup_epochs):
         tic_epoch = time.time()
         model.train()
@@ -194,34 +191,34 @@ def train(model):
         for (i_iter, input) in enumerate(loader):
             label = input.get('label').cuda()
             optimizer.zero_grad()
-            if opt.mode == 1:
+            if opt.mode == 1:   #rgb
                 rgb_images  = input.get('rgb_images').cuda()
                 output      = model(x1=rgb_images)
                 counter     += len(rgb_images)
-            elif opt.mode == 2:
+            elif opt.mode == 2: #thermal
                 thr_images  = input.get('thr_images').cuda()
                 output      = model(x2=thr_images)
                 counter     += len(thr_images)
-            elif opt.mode == 3:
+            elif opt.mode == 3: #audio
                 audio       = input.get('audio').cuda()
                 output      = model(x3=audio)
                 counter     += len(audio)
-            elif opt.mode == 4:
+            elif opt.mode == 4: #rgb+thermal
                 rgb_images  = input.get('rgb_images').cuda()
                 thr_images  = input.get('thr_images').cuda()
                 output      = model(x1=rgb_images,x2=thr_images)
                 counter     += len(rgb_images)
-            elif opt.mode == 5:
+            elif opt.mode == 5: #rgb+audio
                 rgb_images  = input.get('rgb_images').cuda()
                 audio       = input.get('audio').cuda()
                 output      = model(x1=rgb_images, x3=audio)
                 counter     += len(rgb_images)
-            elif opt.mode == 6:
+            elif opt.mode == 6: #thermal+audio
                 thr_images  = input.get('thr_images').cuda()
                 audio       = input.get('audio').cuda()
                 output      = model(x2=thr_images, x3=audio)
                 counter     += len(thr_images)
-            elif opt.mode == 7:
+            elif opt.mode == 7: #rgb+thermal+audio
                 rgb_images  = input.get('rgb_images').cuda()
                 thr_images  = input.get('thr_images').cuda()
                 audio       = input.get('audio').cuda()
@@ -242,6 +239,7 @@ def train(model):
             optimizer.step()
 
             tot_iter = i_iter + epoch*len(loader)
+
             if opt.predict.lower() == "gender":
                 output = torch.sigmoid(output)
                 output = (output>0.5).float()
@@ -250,8 +248,8 @@ def train(model):
                 max_index = output.max(dim = 1)[1]
                 correct += (max_index == label).float().sum()
 
-
-        train_acc = 100 * correct / len(dataset)
+        #Compute train set accuracy
+        train_acc = 100*correct/len(dataset)
         print('\n' + ''.join(81*'*'))
         print('EPOCH={}, lr={}'.format(epoch, show_lr(optimizer)))
         print('TRAIN SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
@@ -267,9 +265,8 @@ def train(model):
         print(''.join(81*'*'))
         if not warmup:
             scheduler.step(valid_loss)
-        #writer.add_scalar('val loss', loss, epoch)
-        #writer.add_scalar('val acc', acc, epoch)
  
+        #Save the best model
         if best_acc < valid_acc:
             best_acc = valid_acc
             best_epoch = epoch
@@ -283,9 +280,9 @@ def train(model):
     print("MODEL: {}".format(os.path.split(tmp_savename)[1]))
     print(''.join(81*'*'))
 
+    #Evaluate model on the test set
     print('\n' + ''.join(81*'*'))
     load_model(model, tmp_savename)
-    #Evaluate model on the test set
     (test_loss, test_acc, test_time) = test(model, test_loader, test_dataset, test=True)
     print('TEST SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
                     test_loss/len(test_dataset), test_time, test_acc))
@@ -305,32 +302,19 @@ def load_model(model, path):
     model.load_state_dict(model_dict)
 
 
-
 if(__name__ == '__main__'):
+    #Setup seed values and other options for experiment repeatability
     torch.manual_seed(opt.random_seed)
     torch.cuda.manual_seed_all(opt.random_seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     np.random.seed(opt.random_seed)
+
     print("Building model...")
-    #model = LipNet(opt)
     model = SFNet(opt).cuda()
-    #model = model.cuda()
-    #net = nn.DataParallel(model).cuda()
+
     if(hasattr(opt, 'weights')):
-        #print("\n"+"Loading model...")
-        #pretrained_dict = torch.load(opt.weights)
-        #model_dict = model.state_dict()
-        #pretrained_dict = {k: v for k, v in pretrained_dict.items() 
-        #                        if k in model_dict.keys() and v.size() == model_dict[k].size()}
-        #missed_params = [k for k, v in model_dict.items() if not k in pretrained_dict.keys()]
-        #print('loaded params/tot params:{}/{}'.format(len(pretrained_dict),len(model_dict)))
-        #print('miss matched params:{}'.format(missed_params))
-        #model_dict.update(pretrained_dict)
-        #model.load_state_dict(model_dict)
-
-
-
+        #Load data
         print("\n"+"Loading valid data...")
         valid_dataset = MyDataset(opt,'valid',noise=opt.valid_noise)
         valid_loader = dataset2dataloader(valid_dataset, shuffle=False)
@@ -341,7 +325,24 @@ if(__name__ == '__main__'):
         test_loader = dataset2dataloader(test_dataset, shuffle=False)
         print('Test data size: {}'.format(len(test_dataset)))
 
-        if False:
+        if True:
+            #Evaluate a single model
+            #Load saved model
+            load_model(model, opt.weights)
+
+            #Evaluate model on the validatin and test sets
+            print("\n"+"Evaluating...")
+            print(''.join(81*'*'))
+            (valid_loss, valid_acc, valid_time) = test(model, valid_loader, valid_dataset, test=True)
+            print('VALID SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
+                        valid_loss/len(valid_dataset), valid_time, valid_acc))
+            print(''.join(81*'*'))
+            (test_loss, test_acc, test_time) = test(model, test_loader, test_dataset, test=True)
+            print('TEST SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
+                        test_loss/len(test_dataset), test_time, test_acc))
+            print(''.join(81*'*'))
+        else:
+            #Evaluate multiple models
             #mode1
             #gender
             #model_names=['models/mmnet_bs256_lr0.1_wd0.0_patience20_drop0.2_epoch200_mode1_seed0_clip10_rfr3_bestEpoch100.torch','models/mmnet_bs256_lr0.1_wd0.0_patience20_drop0.2_epoch200_mode1_seed1_clip10_rfr3_bestEpoch66.torch','models/mmnet_bs256_lr0.1_wd0.0_patience20_drop0.2_epoch200_mode1_seed2_clip10_rfr3_bestEpoch102.torch','models/mmnet_bs256_lr0.1_wd0.0_patience20_drop0.2_epoch200_mode1_seed3_clip10_rfr3_bestEpoch64.torch','models/mmnet_bs256_lr0.1_wd0.0_patience20_drop0.2_epoch200_mode1_seed4_clip10_rfr3_bestEpoch96.torch']
@@ -380,7 +381,7 @@ if(__name__ == '__main__'):
 
             #mode7
             #gender
-            model_names=['models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed0_clip10_rfr3_tfr3_len0.4_bestEpoch61.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed1_clip10_rfr3_tfr3_len0.4_bestEpoch63.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed2_clip10_rfr3_tfr3_len0.4_bestEpoch61.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed3_clip10_rfr3_tfr3_len0.4_bestEpoch63.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed4_clip10_rfr3_tfr3_len0.4_bestEpoch65.torch']
+            #model_names=['models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed0_clip10_rfr3_tfr3_len0.4_bestEpoch61.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed1_clip10_rfr3_tfr3_len0.4_bestEpoch63.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed2_clip10_rfr3_tfr3_len0.4_bestEpoch61.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed3_clip10_rfr3_tfr3_len0.4_bestEpoch63.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.1_epoch200_bs256_seed4_clip10_rfr3_tfr3_len0.4_bestEpoch65.torch']
             #age
             #model_names=['models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.2_epoch200_bs256_seed0_clip10_rfr3_tfr3_len0.4_bestEpoch27.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.2_epoch200_bs256_seed1_clip10_rfr3_tfr3_len0.4_bestEpoch25.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.2_epoch200_bs256_seed2_clip10_rfr3_tfr3_len0.4_bestEpoch28.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.2_epoch200_bs256_seed3_clip10_rfr3_tfr3_len0.4_bestEpoch23.torch','models/mmnet_mode7_lr0.1_wd0.0_patience20_drop0.2_epoch200_bs256_seed4_clip10_rfr3_tfr3_len0.4_bestEpoch23.torch']
 
@@ -399,19 +400,6 @@ if(__name__ == '__main__'):
                 print(''.join(81*'*'))
             exit()
 
-        load_model(model, opt.weights)
-
-        print("\n"+"Evaluating...")
-        #Evaluate model on the test set
-        print(''.join(81*'*'))
-        (valid_loss, valid_acc, valid_time) = test(model, valid_loader, valid_dataset, test=True)
-        print('VALID SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
-                    valid_loss/len(valid_dataset), valid_time, valid_acc))
-        print(''.join(81*'*'))
-        (test_loss, test_acc, test_time) = test(model, test_loader, test_dataset, test=True)
-        print('TEST SET: total loss={:.8f}, time={:.2f}m, acc={:.3f}'.format(
-                    test_loss/len(test_dataset), test_time, test_acc))
-        print(''.join(81*'*'))
     else:
         train(model)
 
